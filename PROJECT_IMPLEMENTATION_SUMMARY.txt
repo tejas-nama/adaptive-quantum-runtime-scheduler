@@ -1,0 +1,500 @@
+================================================================================
+HPC PROJECT: ADAPTIVE CPU-GPU RUNTIME SCHEDULING FOR QUANTUM SIMULATION
+MILESTONE 1: SERIAL BASELINE STABILIZER SIMULATOR - COMPLETE TECHNICAL REPORT
+================================================================================
+
+Date: October 2026
+Status: Phase 1 (Base Serial Baseline) Complete
+Filesystem Location: c:\Users\saina\Desktop\HPC-Project\
+
+--------------------------------------------------------------------------------
+TABLE OF CONTENTS
+--------------------------------------------------------------------------------
+1. Executive Summary & Purpose
+2. Core Stabilizer Tableau Data Structure
+3. Clifford Gates Implementation & Mathematical Update Rules
+4. Computational Basis (Z-Basis) Measurement Algorithm
+5. Implemented Quantum Circuits & Workloads
+6. Simulator Engine & Multi-Shot Architecture
+7. Benchmark Suite & Scaling Results
+8. Profiling Methodology & Measured Computational Hotspots
+9. Verification, Test Suite & Stim Cross-Validation
+10. Directory & File Inventory
+11. Roadmap: Future Parallelization & Adaptive Scheduling (Phases 2-4)
+
+================================================================================
+1. EXECUTIVE SUMMARY & PURPOSE
+================================================================================
+The objective of the broader project is to design and evaluate an Adaptive
+CPU-GPU Runtime Scheduler for stabilizer (Clifford) quantum circuit simulation.
+The eventual scheduler will dynamically decide whether quantum circuit tasks
+should run on CPU, GPU, or Hybrid CPU+GPU based on workload characteristics
+(qubit count, circuit depth, measurement density, and shot count).
+
+Per the foundational HPC methodology:
+"First complete the serial code and FIND HOTSPOTS. Then parallelize them."
+
+This milestone implements the PURE SERIAL BASELINE in Python:
+- Strictly serial execution (one gate at a time, one shot at a time).
+- NO parallelization, NO OpenMP, NO multithreading, NO multiprocessing.
+- NO CUDA, NO OpenCL, NO GPU acceleration, NO adaptive scheduling logic.
+- Natural computational structure preserved so that profiling yields true hotspots.
+- Every prospective optimization site annotated with "# TODO (Optimization):".
+
+================================================================================
+2. CORE STABILIZER TABLEAU DATA STRUCTURE (simulator/tableau.py)
+================================================================================
+The simulator state uses the canonical Aaronson & Gottesman (2004) binary
+tableau representation of dimension (2n + 1) x (2n + 1) for an n-qubit register.
+
+A. Row Layout:
+   - Rows 0 to n - 1 (Destabilizers R_0, ..., R_{n-1}):
+     Independent Pauli operators that complete the symplectic basis.
+   - Rows n to 2n - 1 (Stabilizers R_n, ..., R_{2n-1}):
+     The n commuting Pauli generators that uniquely define the quantum state
+     (|psi> is the unique +1 eigenstate: R_{n+i} |psi> = +|psi>).
+   - Row 2n (Scratch Row):
+     Dedicated row for evaluating deterministic measurement phases without
+     modifying the active stabilizer state.
+
+B. Column Layout:
+   Each row represents a Pauli operator R_i = (-1)^{r_i} * prod_{j=0}^{n-1} P_{i, j}.
+   - Binary matrix X of shape (2n + 1, n):
+     x[i, j] = 1 if P_{i, j} has an X or Y component; 0 otherwise.
+   - Binary matrix Z of shape (2n + 1, n):
+     z[i, j] = 1 if P_{i, j} has a Z or Y component; 0 otherwise.
+
+   Mapping:
+     (x=0, z=0) -> Identity (I)
+     (x=1, z=0) -> Pauli-X   (X)
+     (x=0, z=1) -> Pauli-Z   (Z)
+     (x=1, z=1) -> Pauli-Y   (Y = i*X*Z)
+
+C. Phase Vector r of shape (2n + 1,):
+   - r[i] = 0 -> Sign factor +1
+   - r[i] = 1 -> Sign factor -1
+
+D. Initial Ground State (|00...0>):
+   - Destabilizers initialized to X_i: x[i, i] = 1, z[i, :] = 0, r[i] = 0.
+   - Stabilizers initialized to Z_i:   z[n+i, i] = 1, x[n+i, :] = 0, r[n+i] = 0.
+
+E. In-Place Pauli Row Multiplication (row_mult(h, i)):
+   Computes R_h <- R_h * R_i.
+   Uses Aaronson & Gottesman g(x1, z1, x2, z2) function for phase tracking:
+     g(0,0, x2,z2) = 0
+     g(1,1, x2,z2) = z2 - x2
+     g(1,0, x2,z2) = z2 * (2*x2 - 1)
+     g(0,1, x2,z2) = x2 * (1 - 2*z2)
+   Exponent of i: E = (2*r[h] + 2*r[i] + sum_{j=0}^{n-1} g(x_hj, z_hj, x_ij, z_ij)) mod 4.
+   Since products in the stabilizer group have eigenvalues +/- 1, E in {0, 2}:
+     r[h] <- 1 if E == 2 else 0.
+   Updates Pauli coordinates: x[h, j] ^= x[i, j], z[h, j] ^= z[i, j].
+
+================================================================================
+3. CLIFFORD GATES IMPLEMENTED (simulator/gates.py)
+================================================================================
+All gates are Clifford group unitaries that map Pauli operators to Pauli
+operators via unitary conjugation. Each gate updates rows 0 to 2n - 1:
+
+1. Hadamard Gate (H) on qubit q:
+   Conjugation: H X H^dag = Z,  H Z H^dag = X,  H Y H^dag = -Y
+   Tableau update for each row i:
+     r[i] ^= (x[i, q] * z[i, q])
+     x[i, q], z[i, q] = z[i, q], x[i, q] (swap)
+
+2. Phase Gate (S) on qubit q:
+   Conjugation: S X S^dag = Y,  S Z S^dag = Z,  S Y S^dag = -X
+   Tableau update for each row i:
+     r[i] ^= (x[i, q] * z[i, q])
+     z[i, q] ^= x[i, q]
+
+3. Controlled-NOT Gate (CNOT / CX) from control c to target t:
+   Conjugation:
+     X_c -> X_c * X_t,  Z_t -> Z_c * Z_t,  Y_c * Y_t -> - X_c * Z_t
+   Tableau update for each row i:
+     r[i] ^= x[i, c] * z[i, t] * (x[i, t] ^ z[i, c] ^ 1)
+     x[i, t] ^= x[i, c]
+     z[i, c] ^= z[i, t]
+
+4. Pauli-X Gate (X) on qubit q:
+   Conjugation: X Z X = -Z,  X Y X = -Y,  X X X = X
+   Tableau update: r[i] ^= z[i, q]
+
+5. Pauli-Y Gate (Y) on qubit q:
+   Conjugation: Y X Y = -X,  Y Z Y = -Z,  Y Y Y = Y
+   Tableau update: r[i] ^= (x[i, q] ^ z[i, q])
+
+6. Pauli-Z Gate (Z) on qubit q:
+   Conjugation: Z X Z = -X,  Z Y Z = -Y,  Z Z Z = Z
+   Tableau update: r[i] ^= x[i, q]
+
+7. Controlled-Z Gate (CZ) between qubits c and t:
+   Conjugation: X_c -> X_c * Z_t,  X_t -> Z_c * X_t
+   Tableau update for each row i:
+     r[i] ^= x[i, c] * x[i, t] * (z[i, c] ^ z[i, t])
+     z[i, c] ^= x[i, t]
+     z[i, t] ^= x[i, c]
+
+================================================================================
+4. COMPUTATIONAL BASIS MEASUREMENT (simulator/measurement.py)
+================================================================================
+Measures a single qubit in the Z-basis according to Aaronson & Gottesman (2004):
+
+Step 1: Check for Anti-Commuting Stabilizer Generator:
+  Scan rows p in [n, 2n - 1]. If x[p, qubit] == 1, stabilizer R_p anti-commutes
+  with Z_qubit.
+
+Branch A: Random (Projective) Measurement (Anti-commuting stabilizer p found):
+  - Outcome is fundamentally random (0 with 50%, 1 with 50%).
+  - Sample outcome v in {0, 1} via random generator.
+  - Gaussian Elimination Pivot:
+    For all other rows i in [0, 2n - 1] (i != p) where x[i, qubit] == 1:
+      row_mult(i, p)   (cancels out the X component on qubit in all other rows)
+  - Replace destabilizer p - n with old stabilizer row p.
+  - Set stabilizer row p to (-1)^v * Z_qubit:
+      x[p, :] = 0, z[p, :] = 0, z[p, qubit] = 1, r[p] = v.
+  - Return v.
+
+Branch B: Deterministic Measurement (All stabilizers commute with Z_qubit):
+  - The state is already an eigenstate of Z_qubit; the outcome is deterministic.
+  - Clear scratch row 2n: x[2n, :] = 0, z[2n, :] = 0, r[2n] = 0.
+  - For each destabilizer i in [0, n - 1]:
+      If x[i, qubit] == 1:
+        row_mult(2n, n + i)  (multiply scratch by corresponding stabilizer n+i)
+  - The measurement result is r[2n] (0 or 1).
+  - The active tableau state is preserved without modification.
+  - Return r[2n].
+
+================================================================================
+5. IMPLEMENTED QUANTUM CIRCUITS & WORKLOADS (circuits/)
+================================================================================
+Six distinct categories of quantum circuits were implemented to benchmark and
+profile the simulator across diverse algorithmic regimes:
+
+1. Single-Qubit Hadamard Circuit (circuits/basic.py):
+   Structure: q0: --[H]--[M]--
+   Expected Outcome: |0> ~50%, |1> ~50%.
+
+2. Two-Qubit Bell State |Phi+> (circuits/basic.py):
+   Structure:
+     q0: --[H]--*----[M]--
+                |
+     q1: -------X----[M]--
+   Expected Outcome: |00> ~50%, |11> ~50%, strictly 0% for |01> and |10>.
+
+3. Multi-Qubit Greenberger-Horne-Zeilinger (GHZ) State (circuits/basic.py):
+   Structure for n qubits:
+     H(0) followed by a chain of CNOT(i, i+1) for i = 0 to n - 2,
+     followed by measurements on all n qubits.
+   Expected Outcome: Equal superposition of |00...0> and |11...1>.
+   Validated for n = 3, 5, 10, 50 qubits.
+
+4. Configurable Random Clifford Circuits (circuits/random_clifford.py):
+   Parameters: num_qubits, circuit_depth, random_seed, gate_set, measurements.
+   In each depth cycle:
+     - Single-qubit gates (H, S, or idle) randomly chosen across qubits.
+     - Disjoint qubit pairs randomly chosen for two-qubit CNOT (or CZ) gates.
+   Configurable up to 100+ qubits and 1,000+ depth.
+   Fully deterministic and reproducible with fixed pseudo-random seeds.
+
+5. Measurement-Heavy Workloads (circuits/measurement_heavy.py):
+   Models active quantum circuits and quantum error correction syndrome cycles.
+   Structure:
+     Repeated cycles of a burst of Clifford gates (H, S, CNOT) followed by
+     mid-circuit measurements on a random fraction (e.g., 40-50%) of qubits.
+   Triggers repeated alternation between unitary updates and Gaussian
+   elimination / scratch row reduction.
+
+6. Quantum Error Correction (QEC) Circuits (circuits/qec.py):
+   A. 3-Qubit Bit-Flip Code:
+      - 3 data qubits (d0, d1, d2) + 2 syndrome ancilla qubits (a0, a1).
+      - Encoding: CNOT(d0, d1), CNOT(d0, d2) prepares |000>.
+      - Error injection: Pauli-X on specified data qubit (None, 0, 1, or 2).
+      - Syndrome extraction:
+        * Stabilizer S1 = Z0 * Z1 measured via CNOT(d0, a0), CNOT(d1, a0) -> c0
+        * Stabilizer S2 = Z1 * Z2 measured via CNOT(d1, a1), CNOT(d2, a1) -> c1
+      - Syndrome output mapping:
+        * No error -> '00'
+        * Error on d0 -> '10'
+        * Error on d1 -> '11'
+        * Error on d2 -> '01'
+   B. Repetition Code Multi-Round Syndrome Extraction:
+      - Configurable data qubits and extraction rounds.
+      - Measures nearest-neighbor Z_d * Z_{d+1} parity checks across rounds.
+
+================================================================================
+6. SIMULATOR ENGINE & MULTI-SHOT ARCHITECTURE (simulator/simulator.py)
+================================================================================
+The Simulator class coordinates circuit execution:
+- run_shot(circuit):
+  Allocates a fresh StabilizerTableau(n) and executes each GateOperation
+  sequentially:
+    for op in circuit.operations:
+      if op.is_measurement():
+        measure_qubit(tableau, op.qubits[0])
+      else:
+        CLIFFORD_GATES[op.name](tableau, *op.qubits)
+- simulate(circuit, shots, seed):
+  Sequentially loops over shots:
+    for shot in range(shots):
+      record = run_shot(circuit)
+  Collects counts dictionary, raw bitstring list, and timings using
+  time.perf_counter().
+- Circuit class (simulator/circuit.py) provides:
+  * Fluent builder API: c.h(0).s(1).cnot(0, 1).measure(0)
+  * Properties: num_gates, num_measurements, depth
+  * to_stim(): automatic conversion to Stim circuits for cross-validation.
+
+================================================================================
+7. BENCHMARK SUITE & SCALING RESULTS (benchmarks/)
+================================================================================
+Run command: python -m benchmarks.benchmark
+Results saved to: results/benchmark_results.csv
+
+Summary Table of Empirical Benchmark Runs:
+--------------------------------------------------------------------------------------------------
+Benchmark Name                 | Qubits | Depth | Gates | Meas | Shots | Total Time (s) | Time/Shot (s)
+--------------------------------------------------------------------------------------------------
+Bell_State                     | 2      | 3     | 2     | 2    | 1000  | 0.02043        | 0.000020
+GHZ_10Q                        | 10     | 11    | 10    | 10   | 500   | 0.37903        | 0.000758
+GHZ_50Q                        | 50     | 51    | 50    | 50   | 100   | 6.36552        | 0.063655
+QubitScaling_5Q_D50            | 5      | 78    | 216   | 5    | 5     | 0.00861        | 0.001721
+QubitScaling_10Q_D50           | 10     | 91    | 481   | 10   | 5     | 0.03894        | 0.007788
+QubitScaling_20Q_D50           | 20     | 95    | 949   | 20   | 5     | 0.16498        | 0.032996
+QubitScaling_50Q_D50           | 50     | 96    | 2377  | 50   | 5     | 1.29422        | 0.258844
+QubitScaling_100Q_D50          | 100    | 98    | 4715  | 100  | 5     | 6.98778        | 1.397556
+DepthScaling_20Q_D20           | 20     | 38    | 377   | 20   | 5     | 0.08070        | 0.016140
+DepthScaling_20Q_D50           | 20     | 94    | 964   | 20   | 5     | 0.16004        | 0.032008
+DepthScaling_20Q_D100          | 20     | 185   | 1912  | 20   | 5     | 0.29746        | 0.059492
+DepthScaling_20Q_D200          | 20     | 372   | 3873  | 20   | 5     | 0.57661        | 0.115322
+DepthScaling_20Q_D500          | 20     | 926   | 9621  | 20   | 5     | 1.40084        | 0.280168
+ShotScaling_GHZ10Q_S1          | 10     | 11    | 10    | 10   | 1     | 0.00078        | 0.000779
+ShotScaling_GHZ10Q_S10         | 10     | 11    | 10    | 10   | 10    | 0.00742        | 0.000742
+ShotScaling_GHZ10Q_S50         | 10     | 11    | 10    | 10   | 50    | 0.03777        | 0.000755
+ShotScaling_GHZ10Q_S100        | 10     | 11    | 10    | 10   | 100   | 0.07453        | 0.000745
+ShotScaling_GHZ10Q_S500        | 10     | 11    | 10    | 10   | 500   | 0.37411        | 0.000748
+ShotScaling_GHZ10Q_S1000       | 10     | 11    | 10    | 10   | 1000  | 0.75505        | 0.000755
+Workload_GateHeavy_30Q_D100    | 30     | 187   | 2842  | 30   | 5     | 0.71177        | 0.142355
+Workload_MeasHeavy_20Q_20Cyc   | 20     | 30    | 120   | 200  | 5     | 0.05210        | 0.010420
+Workload_QEC_Repetition_10Q_5R | 19     | 32    | 99    | 45   | 20    | 0.10424        | 0.005212
+--------------------------------------------------------------------------------------------------
+
+Key Empirical Observations:
+1. Qubit Scaling: Quadratic scaling O(n^2) with qubit count n due to the 2n-row
+   tableau dimension.
+2. Depth Scaling: Perfectly linear with depth d (R^2 > 0.999).
+3. Shot Scaling: Perfectly flat time-per-shot (~0.75 ms/shot for 10Q GHZ) from
+   1 shot to 1,000 shots.
+
+================================================================================
+8. PROFILING METHODOLOGY & MEASURED COMPUTATIONAL HOTSPOTS (profiling/)
+================================================================================
+Run command: python -m profiling.profile --workload all
+Generated reports saved in: profiling/results/
+
+Four representative workloads were profiled with cProfile and pstats:
+
+--------------------------------------------------------------------------------
+Workload 1: GATE-HEAVY CLIFFORD (40 Qubits, Depth 100, 3790 Gates, 10 Shots)
+--------------------------------------------------------------------------------
+Function Name                    | Calls      | Total (s)  | % Tot   | Cum (s)    | % Cum
+--------------------------------------------------------------------------------------
+apply_cnot                       | 13920      | 1.0071     | 37.67 % | 1.0071     | 37.67 %
+row_mult                         | 11880      | 0.5585     | 20.89 % | 0.6445     | 24.11 %
+apply_s                          | 12210      | 0.5017     | 18.77 % | 0.5017     | 18.77 %
+apply_h                          | 11770      | 0.4770     | 17.84 % | 0.4770     | 17.84 %
+_g                               | 475200     | 0.0859     | 3.21  % | 0.0859     | 3.21  %
+run_shot                         | 10         | 0.0264     | 0.99  % | 2.6702     | 99.98 %
+_measure_random                  | 390        | 0.0073     | 0.27  % | 0.6438     | 24.11 %
+
+HOTSPOT FINDING: Clifford unitary updates (apply_cnot, apply_s, apply_h) account
+for 74.28% of execution time! In every gate, 2n rows are updated independently.
+
+--------------------------------------------------------------------------------
+Workload 2: MEASUREMENT-HEAVY SYNDROME WORKLOAD (25 Qubits, 25 Cycles, 300 Meas)
+--------------------------------------------------------------------------------
+Function Name                    | Calls      | Total (s)  | % Tot   | Cum (s)    | % Cum
+--------------------------------------------------------------------------------------
+row_mult                         | 5350       | 0.1691     | 63.25 % | 0.1806     | 67.54 %
+apply_cnot                       | 560        | 0.0271     | 10.12 % | 0.0271     | 10.12 %
+apply_h                          | 540        | 0.0147     | 5.49  % | 0.0147     | 5.49  %
+_measure_deterministic           | 2550       | 0.0116     | 4.34  % | 0.1652     | 61.76 %
+_g                               | 133750     | 0.0115     | 4.29  % | 0.0115     | 4.29  %
+apply_s                          | 400        | 0.0110     | 4.12  % | 0.0110     | 4.12  %
+find_anticommuting_stabilizer    | 3000       | 0.0091     | 3.41  % | 0.0091     | 3.41  %
+_measure_random                  | 450        | 0.0043     | 1.61  % | 0.0340     | 12.70 %
+
+HOTSPOT FINDING: row_mult dominates at 63.25% of runtime! Gaussian elimination
+pivoting and deterministic scratch-row accumulation consume over 67% of total time.
+
+--------------------------------------------------------------------------------
+Workload 3: MANY-SHOT SIMULATION (10 Qubit GHZ State, 1,500 Shots)
+--------------------------------------------------------------------------------
+Function Name                    | Calls      | Total (s)  | % Tot   | Cum (s)    | % Cum
+--------------------------------------------------------------------------------------
+row_mult                         | 81000      | 1.0812     | 68.34 % | 1.1524     | 72.84 %
+apply_cnot                       | 13500      | 0.2656     | 16.79 % | 0.2656     | 16.79 %
+_g                               | 810000     | 0.0712     | 4.50  % | 0.0712     | 4.50  %
+_measure_deterministic           | 13500      | 0.0496     | 3.14  % | 1.2088     | 76.41 %
+run_shot                         | 1500       | 0.0213     | 1.35  % | 1.5698     | 99.23 %
+
+HOTSPOT FINDING: Sequential shot iteration (run_shot) and repeated stabilizer
+measurements dominate runtime. Shots are embarrassingly parallel.
+
+--------------------------------------------------------------------------------
+Workload 4: HIGH-QUBIT SCALING (80 Qubits, Depth 40, 5 Shots)
+--------------------------------------------------------------------------------
+Function Name                    | Calls      | Total (s)  | % Tot   | Cum (s)    | % Cum
+--------------------------------------------------------------------------------------
+row_mult                         | 23620      | 2.3252     | 52.37 % | 2.6879     | 60.54 %
+apply_cnot                       | 5755       | 0.8730     | 19.66 % | 0.8730     | 19.66 %
+apply_s                          | 5095       | 0.4399     | 9.91  % | 0.4399     | 9.91  %
+apply_h                          | 4740       | 0.4025     | 9.07  % | 0.4025     | 9.07  %
+_g                               | 1889600    | 0.3626     | 8.17  % | 0.3626     | 8.17  %
+
+HOTSPOT FINDING: row_mult and apply_cnot together account for 72.03% of runtime.
+As n increases, inner loop operations over the 2n rows scale quadratically.
+
+================================================================================
+9. VERIFICATION, TEST SUITE & STIM CROSS-VALIDATION (tests/)
+================================================================================
+Run command: pytest -v
+Results: 35 passed in 2.62s (100% pass rate)
+
+Breakdown of Test Modules:
+1. test_gates.py (7 tests):
+   - Involution identities: H^2 = I, S^4 = I, X^2 = I, Y^2 = I, Z^2 = I,
+     CNOT^2 = I, CZ^2 = I.
+   - Conjugation identities: H Z H = X, H X H = Z, S X S^dag = Y, S Z S^dag = Z.
+   - Stabilizer propagation: |+0> under CNOT produces Bell stabilizers (XX, ZZ).
+   - CZ symmetry and boundary checks.
+
+2. test_measurement.py (6 tests):
+   - Deterministic ground state (|0...0>) -> always 0.
+   - Deterministic excited state (|1>) -> always 1.
+   - Deterministic bitstrings (|101>) -> returns 1, 0, 1.
+   - Superposition distribution (|+>) -> 50% 0s and 50% 1s across 1000 shots.
+   - Wavefunction collapse: measuring the same qubit repeatedly yields identical
+     outcomes (100% collapse stability).
+   - Distant qubit invariance: measuring qubit 0 in |+0> leaves qubit 1 at 0.
+
+3. test_bell.py (2 tests):
+   - |Phi+> state: strictly outputs '00' and '11' (~50% each); 0% for '01' and '10'.
+   - |Psi+> state: strictly outputs '01' and '10'.
+
+4. test_ghz.py (3 tests):
+   - GHZ state for n = 3, 5, 10 qubits across 500 shots.
+   - Verified zero leakage to any of the 2^n - 2 intermediate basis states.
+   - Balanced distribution (~50% all-zeros, ~50% all-ones).
+
+5. test_random_circuits.py (6 tests):
+   - Seed reproducibility: identical random seeds produce identical bitstrings.
+   - Scalability across dimensions (4 to 32 qubits, depths 10 to 30).
+   - Correctness of extended gate set (X, Y, Z, CZ).
+
+6. test_qec.py (5 tests):
+   - 3-qubit bit-flip code: validates correct syndrome diagnosis:
+     * No error -> '00'
+     * Bit flip on q0 -> '10'
+     * Bit flip on q1 -> '11'
+     * Bit flip on q2 -> '01'
+   - Repetition code: verifies syndrome stability over 3 extraction rounds.
+
+7. test_stim_validation.py (6 tests):
+   - Independent cross-validation against the Stim C++ simulator:
+     * Bell state probabilities match Stim.
+     * GHZ state probabilities match Stim.
+     * 10 distinct deterministic Clifford circuits match Stim 100% bit-for-bit.
+     * Random Clifford circuits: all bitstrings sampled by our simulator belong
+       to Stim's valid subspace support; marginal probabilities match within
+       statistical sampling tolerance.
+
+================================================================================
+10. COMPLETE DIRECTORY & FILE INVENTORY
+================================================================================
+All files are located in: c:\Users\saina\Desktop\HPC-Project\
+
+- README.md:
+  Full academic documentation with theory, architecture, benchmarks, and roadmap.
+- PROJECT_IMPLEMENTATION_SUMMARY.txt:
+  This complete technical report.
+- requirements.txt:
+  Python dependencies (numpy, pytest, stim).
+
+Core Simulator Package (simulator/):
+- simulator/__init__.py: Package exports.
+- simulator/tableau.py: StabilizerTableau class, Aaronson-Gottesman representation.
+- simulator/gates.py: Clifford gates (H, S, CNOT, X, Y, Z, CZ).
+- simulator/measurement.py: Computational basis measurement (random & deterministic).
+- simulator/circuit.py: Circuit, GateOperation, depth calculation, Stim exporter.
+- simulator/simulator.py: Serial Simulator engine & SimulationResult container.
+
+Circuits Package (circuits/):
+- circuits/__init__.py: Circuit exports.
+- circuits/basic.py: Single-qubit H, Bell state, GHZ state.
+- circuits/random_clifford.py: Configurable random Clifford circuit generator.
+- circuits/measurement_heavy.py: Interleaved gate & measurement cycle generator.
+- circuits/qec.py: 3-qubit bit-flip code & repetition code stabilizer circuits.
+
+Benchmarks Package (benchmarks/):
+- benchmarks/__init__.py: Benchmark exports.
+- benchmarks/configs.py: Scaling configurations across qubits, depth, and shots.
+- benchmarks/benchmark.py: High-resolution benchmark runner; generates CSV output.
+
+Profiling Package (profiling/):
+- profiling/__init__.py: Profiling exports.
+- profiling/profile.py: cProfile & pstats driver for 4 workload regimes.
+- profiling/results/:
+  * profile_gate_heavy.txt: Detailed stats for gate-heavy workload.
+  * profile_measurement_heavy.txt: Detailed stats for measurement-heavy workload.
+  * profile_many_shots.txt: Detailed stats for many-shot workload.
+  * profile_high_qubits.txt: Detailed stats for high-qubit scaling workload.
+  * profile_summary.md: Synthesized markdown report analyzing hotspots.
+
+Test Suite (tests/):
+- tests/__init__.py: Test package marker.
+- tests/test_gates.py: Gate algebraic identities.
+- tests/test_measurement.py: Measurement cases and wavefunction collapse.
+- tests/test_bell.py: Bell state correlations.
+- tests/test_ghz.py: GHZ state correlations.
+- tests/test_random_circuits.py: Random Clifford reproducibility and scaling.
+- tests/test_qec.py: Quantum error correction syndrome extraction.
+- tests/test_stim_validation.py: Cross-validation against Stim.
+
+Results (results/):
+- results/benchmark_results.csv: Empirical timing logs for all benchmark cases.
+
+================================================================================
+11. ROADMAP: FUTURE PARALLELIZATION & ADAPTIVE SCHEDULING (PHASES 2-4)
+================================================================================
+Based on the empirical profiling findings from this baseline milestone:
+
+PHASE 2: CPU PARALLELIZATION
+- Target 1: Clifford gate row updates (apply_cnot, apply_h, apply_s).
+  Map the independent 2n row updates to OpenMP multi-threaded CPU loops.
+- Target 2: Row multiplication (row_mult).
+  Implement 64-bit SIMD bit-packing (AVX2/AVX-512) reducing inner-loop operations
+  by a factor of 64.
+- Target 3: Multi-shot batching.
+  Distribute independent shots across CPU cores.
+
+PHASE 3: GPU ACCELERATION (QuaSARQ-INSPIRED)
+- Target 1: Massively parallel Clifford gate CUDA kernels updating thousands of
+  tableau elements simultaneously.
+- Target 2: Data-parallel Gaussian elimination primitives for measurement updates.
+- Target 3: Multi-shot GPU grid execution: launching thousands of independent
+  shots across GPU thread blocks.
+
+PHASE 4: ADAPTIVE CPU-GPU RUNTIME SCHEDULER
+- Formulate cost models for CPU vs. GPU crossover points based on:
+  * Qubit count n (low n -> CPU avoids PCIe overhead; high n -> GPU dominates).
+  * Measurement density (measurement-heavy vs. gate-heavy).
+  * Shot count (large shots -> GPU batching).
+- Implement adaptive scheduling layer and evaluate:
+  * Speedup
+  * Scheduling overhead
+  * CPU/GPU utilization.
+
+================================================================================
+END OF TECHNICAL REPORT
+================================================================================

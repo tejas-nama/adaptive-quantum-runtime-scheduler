@@ -1,0 +1,25 @@
+PROFILING REPORT: high_qubits
+Total Wall Time: 4.9809 seconds
+Circuit: Qubits=80, Depth=78, Gates=3118, Measurements=80, Shots=5
+
+------------------------------------------------------------------------------------------------------------------
+Function Name                    | Calls      | Total (s)  | % Tot   | Cum (s)    | % Cum   | Location            
+------------------------------------------------------------------------------------------------------------------
+row_mult                         | 23620      | 2.5949     | 52.10 % | 2.9950     | 60.13 % | tableau.py:126      
+apply_cnot                       | 5755       | 0.9917     | 19.91 % | 0.9917     | 19.91 % | gates.py:80         
+apply_s                          | 5095       | 0.4909     | 9.86  % | 0.4909     | 9.86  % | gates.py:53         
+apply_h                          | 4740       | 0.4575     | 9.18  % | 0.4575     | 9.18  % | gates.py:23         
+_g                               | 1889600    | 0.4001     | 8.03  % | 0.4001     | 8.03  % | tableau.py:106      
+_measure_random                  | 395        | 0.0187     | 0.38  % | 2.9886     | 60.00 % | measurement.py:54   
+run_shot                         | 5          | 0.0170     | 0.34  % | 4.9805     | 99.99 % | simulator.py:78     
+find_anticommuting_stabilizer    | 400        | 0.0024     | 0.05  % | 0.0024     | 0.05  % | measurement.py:38   
+is_measurement                   | 15990      | 0.0023     | 0.05  % | 0.0023     | 0.05  % | circuit.py:27       
+<method 'get' of 'dict' objects> | 15595      | 0.0019     | 0.04  % | 0.0019     | 0.04  % | ~:0                 
+<method 'fill' of 'numpy.ndarray' objects> | 815        | 0.0006     | 0.01  % | 0.0006     | 0.01  % | ~:0                 
+randrange                        | 395        | 0.0006     | 0.01  % | 0.0014     | 0.03  % | random.py:295       
+measure_qubit                    | 400        | 0.0005     | 0.01  % | 3.0190     | 60.61 % | measurement.py:123  
+_randbelow_with_getrandbits      | 395        | 0.0004     | 0.01  % | 0.0006     | 0.01  % | random.py:245       
+randint                          | 395        | 0.0003     | 0.01  % | 0.0016     | 0.03  % | random.py:336       
+------------------------------------------------------------------------------------------------------------------
+
+DETAILED PSTATS PRINTOUT:

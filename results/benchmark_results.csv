@@ -1,0 +1,23 @@
+Benchmark,Category,Qubits,Depth,Gates,Measurements,Shots,Repetitions,Total Time (s),Time/Shot (s)
+Bell_State,canonical,2,3,2,2,1000,3,0.023193,2.32e-05
+GHZ_10Q,canonical,10,11,10,10,500,3,0.359541,0.0007191
+GHZ_50Q,canonical,50,51,50,50,100,2,6.290055,0.0629006
+QubitScaling_5Q_D50,qubit_scaling,5,78,216,5,5,2,0.008629,0.0017259
+QubitScaling_10Q_D50,qubit_scaling,10,91,481,10,5,2,0.043801,0.0087603
+QubitScaling_20Q_D50,qubit_scaling,20,95,949,20,5,2,0.160691,0.0321382
+QubitScaling_50Q_D50,qubit_scaling,50,96,2377,50,5,2,1.247495,0.2494989
+QubitScaling_100Q_D50,qubit_scaling,100,98,4715,100,5,2,6.939626,1.3879252
+DepthScaling_20Q_D20,depth_scaling,20,38,377,20,5,2,0.083407,0.0166815
+DepthScaling_20Q_D50,depth_scaling,20,94,964,20,5,2,0.161354,0.0322708
+DepthScaling_20Q_D100,depth_scaling,20,185,1912,20,5,2,0.301329,0.0602657
+DepthScaling_20Q_D200,depth_scaling,20,372,3873,20,5,2,0.563621,0.1127242
+DepthScaling_20Q_D500,depth_scaling,20,926,9621,20,5,2,1.374881,0.2749762
+ShotScaling_GHZ10Q_S1,shot_scaling,10,11,10,10,1,1,0.001295,0.0012947
+ShotScaling_GHZ10Q_S10,shot_scaling,10,11,10,10,10,1,0.008327,0.0008327
+ShotScaling_GHZ10Q_S50,shot_scaling,10,11,10,10,50,1,0.04009,0.0008018
+ShotScaling_GHZ10Q_S100,shot_scaling,10,11,10,10,100,1,0.078287,0.0007829
+ShotScaling_GHZ10Q_S500,shot_scaling,10,11,10,10,500,1,0.37656,0.0007531
+ShotScaling_GHZ10Q_S1000,shot_scaling,10,11,10,10,1000,1,0.748568,0.0007486
+Workload_GateHeavy_30Q_D100,workload_type,30,187,2842,30,5,2,0.67787,0.135574
+Workload_MeasurementHeavy_20Q_20Cycles,workload_type,20,30,120,200,5,2,0.051724,0.0103449
+Workload_QEC_Repetition_10Data_5Rounds,workload_type,19,32,99,45,20,2,0.104993,0.0052497

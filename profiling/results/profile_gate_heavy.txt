@@ -1,0 +1,25 @@
+PROFILING REPORT: gate_heavy
+Total Wall Time: 3.1949 seconds
+Circuit: Qubits=40, Depth=190, Gates=3790, Measurements=40, Shots=10
+
+------------------------------------------------------------------------------------------------------------------
+Function Name                    | Calls      | Total (s)  | % Tot   | Cum (s)    | % Cum   | Location            
+------------------------------------------------------------------------------------------------------------------
+apply_cnot                       | 13920      | 1.1910     | 37.28 % | 1.1910     | 37.28 % | gates.py:80         
+row_mult                         | 11880      | 0.6801     | 21.29 % | 0.7840     | 24.54 % | tableau.py:126      
+apply_s                          | 12210      | 0.5973     | 18.70 % | 0.5973     | 18.70 % | gates.py:53         
+apply_h                          | 11770      | 0.5606     | 17.55 % | 0.5606     | 17.55 % | gates.py:23         
+_g                               | 475200     | 0.1039     | 3.25  % | 0.1039     | 3.25  % | tableau.py:106      
+run_shot                         | 10         | 0.0378     | 1.18  % | 3.1942     | 99.98 % | simulator.py:78     
+_measure_random                  | 390        | 0.0101     | 0.32  % | 0.7832     | 24.51 % | measurement.py:54   
+is_measurement                   | 38300      | 0.0051     | 0.16  % | 0.0051     | 0.16  % | circuit.py:27       
+<method 'get' of 'dict' objects> | 37910      | 0.0042     | 0.13  % | 0.0042     | 0.13  % | ~:0                 
+find_anticommuting_stabilizer    | 400        | 0.0014     | 0.04  % | 0.0014     | 0.04  % | measurement.py:38   
+<method 'fill' of 'numpy.ndarray' objects> | 830        | 0.0006     | 0.02  % | 0.0006     | 0.02  % | ~:0                 
+randrange                        | 390        | 0.0004     | 0.01  % | 0.0011     | 0.04  % | random.py:295       
+measure_qubit                    | 400        | 0.0004     | 0.01  % | 0.7978     | 24.97 % | measurement.py:123  
+_randbelow_with_getrandbits      | 390        | 0.0003     | 0.01  % | 0.0005     | 0.02  % | random.py:245       
+simulate                         | 1          | 0.0003     | 0.01  % | 3.1949     | 100.00% | simulator.py:111    
+------------------------------------------------------------------------------------------------------------------
+
+DETAILED PSTATS PRINTOUT:

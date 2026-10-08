@@ -1,0 +1,25 @@
+PROFILING REPORT: measurement_heavy
+Total Wall Time: 0.3054 seconds
+Circuit: Qubits=25, Depth=33, Gates=150, Measurements=300, Shots=10
+
+------------------------------------------------------------------------------------------------------------------
+Function Name                    | Calls      | Total (s)  | % Tot   | Cum (s)    | % Cum   | Location            
+------------------------------------------------------------------------------------------------------------------
+row_mult                         | 5350       | 0.1929     | 63.18 % | 0.2056     | 67.32 % | tableau.py:126      
+apply_cnot                       | 560        | 0.0301     | 9.87  % | 0.0301     | 9.87  % | gates.py:80         
+apply_h                          | 540        | 0.0164     | 5.37  % | 0.0164     | 5.37  % | gates.py:23         
+_measure_deterministic           | 2550       | 0.0135     | 4.42  % | 0.1888     | 61.84 % | measurement.py:95   
+_g                               | 133750     | 0.0126     | 4.13  % | 0.0126     | 4.13  % | tableau.py:106      
+apply_s                          | 400        | 0.0123     | 4.04  % | 0.0123     | 4.04  % | gates.py:53         
+find_anticommuting_stabilizer    | 3000       | 0.0104     | 3.42  % | 0.0104     | 3.42  % | measurement.py:38   
+_measure_random                  | 450        | 0.0052     | 1.70  % | 0.0388     | 12.70 % | measurement.py:54   
+run_shot                         | 10         | 0.0043     | 1.41  % | 0.3041     | 99.59 % | simulator.py:78     
+<method 'fill' of 'numpy.ndarray' objects> | 6030       | 0.0020     | 0.65  % | 0.0020     | 0.65  % | ~:0                 
+measure_qubit                    | 3000       | 0.0018     | 0.58  % | 0.2398     | 78.53 % | measurement.py:123  
+is_measurement                   | 4500       | 0.0006     | 0.20  % | 0.0006     | 0.20  % | circuit.py:27       
+<genexpr>                        | 3010       | 0.0005     | 0.18  % | 0.0005     | 0.18  % | simulator.py:154    
+randrange                        | 450        | 0.0005     | 0.16  % | 0.0012     | 0.40  % | random.py:295       
+<method 'join' of 'str' objects> | 10         | 0.0004     | 0.14  % | 0.0010     | 0.32  % | ~:0                 
+------------------------------------------------------------------------------------------------------------------
+
+DETAILED PSTATS PRINTOUT:
