@@ -34,7 +34,9 @@ def run_benchmarks(
     Returns:
         List of recorded benchmark result records.
     """
-    os.makedirs(os.path.dirname(output_csv_path), exist_ok=True)
+    dir_name = os.path.dirname(output_csv_path)
+    if dir_name:
+        os.makedirs(dir_name, exist_ok=True)
     sim = Simulator(seed=42)
 
     results: List[Dict[str, Any]] = []
